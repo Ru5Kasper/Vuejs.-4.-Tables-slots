@@ -9,62 +9,76 @@
       </header>
 
       <div class="bg-white rounded-lg shadow-lg p-6">
-        <!-- Панель управления фильтрами -->
-        <div class="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Фильтр по имени</label>
-            <input
-              v-model="filters.firstName"
-              type="text"
-              placeholder="Введите имя..."
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Фильтр по фамилии</label>
-            <input
-              v-model="filters.lastName"
-              type="text"
-              placeholder="Введите фамилию..."
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Фильтр по email</label>
-            <input
-              v-model="filters.email"
-              type="text"
-              placeholder="Введите email..."
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Фильтр по стране</label>
-            <input
-              v-model="filters.developedCountries"
-              type="text"
-              placeholder="Введите страну..."
-              class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-        <!-- Кнопка очистки фильтров -->
-        <div v-if="activeFiltersCount > 0" class="mb-4 flex justify-end">
-          <button
-            @click="clearFilters"
-            class="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition-colors"
-          >
-            Очистить все фильтры ({{ activeFiltersCount }})
-          </button>
-        </div>
-
-        <!-- Таблица -->
+        <!-- Таблица с кастомными заголовками и фильтрами -->
         <BaseTable 
           :rows="filteredData" 
           :headers="headers"
+          :active-filters="filters"
+          @filter-change="handleFilterChange"
+          @clear-filter="clearColumnFilter"
         >
-          <!-- Слоты для кастомизации ячеек -->
+          <!-- Слоты для кастомных заголовков с фильтрами -->
+          <template #header-firstName="{ key, text }">
+            <div class="space-y-2">
+              <span class="font-medium">{{ text }}</span>
+              <InputFilter
+                v-model="filterModels.firstName"
+                :column="key"
+                placeholder="Поиск по имени..."
+                @filter="handleFilter"
+              />
+            </div>
+          </template>
+
+          <template #header-lastName="{ key, text }">
+            <div class="space-y-2">
+              <span class="font-medium">{{ text }}</span>
+              <InputFilter
+                v-model="filterModels.lastName"
+                :column="key"
+                placeholder="Поиск по фамилии..."
+                @filter="handleFilter"
+              />
+            </div>
+          </template>
+
+          <template #header-email="{ key, text }">
+            <div class="space-y-2">
+              <span class="font-medium">{{ text }}</span>
+              <InputFilter
+                v-model="filterModels.email"
+                :column="key"
+                placeholder="Поиск по email..."
+                @filter="handleFilter"
+              />
+            </div>
+          </template>
+
+          <template #header-phone="{ key, text }">
+            <div class="space-y-2">
+              <span class="font-medium">{{ text }}</span>
+              <InputFilter
+                v-model="filterModels.phone"
+                :column="key"
+                placeholder="Поиск по телефону..."
+                @filter="handleFilter"
+              />
+            </div>
+          </template>
+
+          <template #header-developedCountries="{ key, text }">
+            <div class="space-y-2">
+              <span class="font-medium">{{ text }}</span>
+              <InputFilter
+                v-model="filterModels.developedCountries"
+                :column="key"
+                placeholder="Поиск по стране..."
+                @filter="handleFilter"
+              />
+            </div>
+          </template>
+
+          <!-- Слоты для кастомизации ячеек (остаются как были) -->
           <template #email="{ value }">
             <a 
               :href="`mailto:${value}`" 
@@ -122,6 +136,7 @@ import BaseTable from './components/BaseTable.vue'
 import MarketCapCell from './components/MarketCapCell.vue'
 import CountryBadges from './components/CountryBadges.vue'
 import PhoneFormatter from './components/PhoneFormatter.vue'
+import InputFilter from './components/InputFilter.vue'
 
 // Заголовки таблицы
 const headers = ref({
@@ -134,32 +149,105 @@ const headers = ref({
   developedCountries: 'Развитые страны'
 })
 
-// Данные (пока пустые, загрузим из JSON)
+// Исходные данные
 const data = ref([])
 
-// Фильтры
-const filters = ref({
+// Модели для v-model в InputFilter (сохраняют значения)
+const filterModels = ref({
   firstName: '',
   lastName: '',
   email: '',
+  phone: '',
   developedCountries: ''
 })
 
-// Загрузка данных из JSON файла
+// Активные фильтры (только непустые значения)
+const filters = ref({})
+
+// Загрузка данных
 const loadData = async () => {
   try {
-    // Импортируем данные напрямую (если файл в src/data/)
     const response = await fetch('./src/data/data.json')
     if (!response.ok) throw new Error('Ошибка загрузки данных')
     data.value = await response.json()
   } catch (error) {
     console.error('Ошибка загрузки данных:', error)
-    // Резервные данные на случай ошибки
+    // Резервные данные
     data.value = getFallbackData()
   }
 }
 
-// Резервные данные
+// Вычисляемые свойства
+const filteredData = computed(() => {
+  if (Object.keys(filters.value).length === 0) {
+    return data.value
+  }
+
+  return data.value.filter(row => {
+    return Object.entries(filters.value).every(([key, filterValue]) => {
+      if (!filterValue || filterValue.trim() === '') return true
+      
+      const searchTerm = filterValue.toLowerCase().trim()
+      const cellValue = row[key]
+      
+      if (!cellValue) return false
+      
+      // Для строк
+      if (typeof cellValue === 'string') {
+        return cellValue.toLowerCase().includes(searchTerm)
+      }
+      
+      // Для чисел
+      if (typeof cellValue === 'number') {
+        return cellValue.toString().includes(searchTerm)
+      }
+      
+      // Для массивов
+      if (Array.isArray(cellValue)) {
+        return cellValue.some(item => 
+          item.toLowerCase().includes(searchTerm)
+        )
+      }
+      
+      return true
+    })
+  })
+})
+
+const activeFiltersCount = computed(() => {
+  return Object.keys(filters.value).length
+})
+
+// Обработчики событий
+const handleFilter = ({ key, value }) => {
+  if (value && value.trim() !== '') {
+    filters.value[key] = value.trim()
+  } else {
+    // Удаляем фильтр если значение пустое
+    delete filters.value[key]
+  }
+}
+
+const handleFilterChange = (newFilters) => {
+  filters.value = newFilters
+  // Синхронизируем модели
+  Object.keys(filterModels.value).forEach(key => {
+    if (!newFilters[key]) {
+      filterModels.value[key] = ''
+    }
+  })
+}
+
+const clearColumnFilter = (key) => {
+  delete filters.value[key]
+  filterModels.value[key] = ''
+}
+
+const handleImageError = (event) => {
+  event.target.src = 'https://via.placeholder.com/200?text=No+Image'
+}
+
+// Резервные данные (укороченная версия)
 const getFallbackData = () => {
   return [
     {
@@ -183,66 +271,7 @@ const getFallbackData = () => {
   ]
 }
 
-// Отфильтрованные данные
-const filteredData = computed(() => {
-  if (!hasActiveFilters.value) {
-    return data.value
-  }
-
-  return data.value.filter(row => {
-    return Object.entries(filters.value).every(([key, filterValue]) => {
-      if (!filterValue || filterValue.trim() === '') return true
-      
-      const searchTerm = filterValue.toLowerCase().trim()
-      const cellValue = row[key]
-      
-      if (!cellValue) return false
-      
-      // Для строк
-      if (typeof cellValue === 'string') {
-        return cellValue.toLowerCase().includes(searchTerm)
-      }
-      
-      // Для чисел
-      if (typeof cellValue === 'number') {
-        return cellValue.toString().includes(searchTerm)
-      }
-      
-      // Для массивов (стран)
-      if (Array.isArray(cellValue)) {
-        return cellValue.some(item => 
-          item.toLowerCase().includes(searchTerm)
-        )
-      }
-      
-      return true
-    })
-  })
-})
-
-// Активные фильтры
-const activeFiltersCount = computed(() => {
-  return Object.values(filters.value).filter(v => v && v.trim()).length
-})
-
-const hasActiveFilters = computed(() => activeFiltersCount.value > 0)
-
-// Очистка фильтров
-const clearFilters = () => {
-  filters.value = {
-    firstName: '',
-    lastName: '',
-    email: '',
-    developedCountries: ''
-  }
-}
-
-// Обработчик ошибок изображений
-const handleImageError = (event) => {
-  event.target.src = 'https://via.placeholder.com/200?text=No+Image'
-}
-
-// Загружаем данные при монтировании
+// Загружаем данные
 onMounted(() => {
   loadData()
 })
