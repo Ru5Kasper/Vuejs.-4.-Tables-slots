@@ -1,16 +1,16 @@
 <template>
   <div class="relative">
     <input
-      v-model="filterValue"
+      :value="inputValue"
       @input="handleInput"
       :placeholder="placeholder"
       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
       type="text"
     />
     <button
-      v-if="filterValue"
+      v-if="inputValue"
       @click="clearFilter"
-      class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+      class="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors duration-150"
       type="button"
       title="Очистить фильтр"
     >
@@ -22,7 +22,8 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
+import debounce from 'lodash.debounce'
 
 const props = defineProps({
   placeholder: {
@@ -41,30 +42,40 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'filter'])
 
-// Используем ref для локального значения
-const filterValue = ref(props.modelValue)
+const inputValue = ref(props.modelValue)
 
-// Отслеживаем изменения modelValue извне
-watch(() => props.modelValue, (newValue) => {
-  filterValue.value = newValue
-})
-
-const handleInput = () => {
-  // Эмитим обновление v-model
-  emit('update:modelValue', filterValue.value)
-  // Эмитим событие фильтрации
+// Дебаунсинг для ввода (100мс)
+const emitFilterDebounced = debounce((value) => {
+  emit('update:modelValue', value)
   emit('filter', { 
     key: props.column, 
-    value: filterValue.value 
+    value: value 
   })
+}, 100)
+
+const handleInput = (event) => {
+  const value = event.target.value
+  inputValue.value = value
+  emitFilterDebounced(value)
 }
 
 const clearFilter = () => {
-  filterValue.value = ''
+  inputValue.value = ''
+  emitFilterDebounced.cancel() // Отменяем предыдущий вызов
   emit('update:modelValue', '')
   emit('filter', { 
     key: props.column, 
     value: '' 
   })
 }
+
+// Отслеживаем изменения modelValue извне
+watch(() => props.modelValue, (newValue) => {
+  inputValue.value = newValue
+})
+
+// Очищаем таймер при уничтожении компонента
+onUnmounted(() => {
+  emitFilterDebounced.cancel()
+})
 </script>

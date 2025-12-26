@@ -78,11 +78,11 @@
             </div>
           </template>
 
-          <!-- Слоты для кастомизации ячеек (остаются как были) -->
+          <!-- Слоты для кастомизации ячеек -->
           <template #email="{ value }">
             <a 
               :href="`mailto:${value}`" 
-              class="text-blue-600 hover:text-blue-800 hover:underline"
+              class="text-blue-600 hover:text-blue-800 hover:underline transition-colors duration-150"
             >
               {{ value }}
             </a>
@@ -131,7 +131,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, shallowRef } from 'vue'
+import debounce from 'lodash.debounce'
 import BaseTable from './components/BaseTable.vue'
 import MarketCapCell from './components/MarketCapCell.vue'
 import CountryBadges from './components/CountryBadges.vue'
@@ -149,8 +150,8 @@ const headers = ref({
   developedCountries: 'Развитые страны'
 })
 
-// Исходные данные
-const data = ref([])
+// Исходные данные - используем shallowRef для оптимизации
+const data = shallowRef([])
 
 // Модели для v-model в InputFilter (сохраняют значения)
 const filterModels = ref({
@@ -161,29 +162,20 @@ const filterModels = ref({
   developedCountries: ''
 })
 
-// Активные фильтры (только непустые значения)
-const filters = ref({})
+// Активные фильтры (только непустые значения) - тоже shallowRef
+const filters = shallowRef({})
 
-// Загрузка данных
-const loadData = async () => {
-  try {
-    const response = await fetch('./src/data/data.json')
-    if (!response.ok) throw new Error('Ошибка загрузки данных')
-    data.value = await response.json()
-  } catch (error) {
-    console.error('Ошибка загрузки данных:', error)
-    // Резервные данные
-    data.value = getFallbackData()
-  }
-}
+// Отфильтрованные данные
+const filteredData = shallowRef([])
 
-// Вычисляемые свойства
-const filteredData = computed(() => {
+// Дебаунсинг фильтрации (300мс задержка)
+const applyFiltersDebounced = debounce(() => {
   if (Object.keys(filters.value).length === 0) {
-    return data.value
+    filteredData.value = data.value
+    return
   }
 
-  return data.value.filter(row => {
+  filteredData.value = data.value.filter(row => {
     return Object.entries(filters.value).every(([key, filterValue]) => {
       if (!filterValue || filterValue.trim() === '') return true
       
@@ -212,21 +204,57 @@ const filteredData = computed(() => {
       return true
     })
   })
-})
+}, 300)
 
+// Следим за изменениями фильтров и данных
+watch(() => filters.value, () => {
+  applyFiltersDebounced()
+}, { deep: true })
+
+watch(() => data.value, () => {
+  applyFiltersDebounced()
+}, { immediate: true })
+
+// Вычисляемые свойства
 const activeFiltersCount = computed(() => {
   return Object.keys(filters.value).length
 })
 
-// Обработчики событий
-const handleFilter = ({ key, value }) => {
-  if (value && value.trim() !== '') {
-    filters.value[key] = value.trim()
-  } else {
-    // Удаляем фильтр если значение пустое
-    delete filters.value[key]
+// Загрузка данных
+const loadData = async () => {
+  try {
+    // Если данные уже есть, не загружаем снова
+    if (data.value.length > 0) return
+    
+    // Используем статический импорт для стабильности
+    // import usersData from './data/data.json'
+    // data.value = usersData
+    
+    const response = await fetch('./src/data/data.json')
+    if (!response.ok) throw new Error('Ошибка загрузки данных')
+    const loadedData = await response.json()
+    
+    // Одной операцией назначаем все данные
+    data.value = loadedData
+    
+  } catch (error) {
+    console.error('Ошибка загрузки данных:', error)
+    data.value = getFallbackData()
   }
 }
+
+// Обработчики событий
+const handleFilter = debounce(({ key, value }) => {
+  if (value && value.trim() !== '') {
+    // Используем spread оператор для реактивности
+    filters.value = { ...filters.value, [key]: value.trim() }
+  } else {
+    // Удаляем фильтр если значение пустое
+    const newFilters = { ...filters.value }
+    delete newFilters[key]
+    filters.value = newFilters
+  }
+}, 150) // Меньшая задержка для немедленной реакции
 
 const handleFilterChange = (newFilters) => {
   filters.value = newFilters
@@ -239,7 +267,9 @@ const handleFilterChange = (newFilters) => {
 }
 
 const clearColumnFilter = (key) => {
-  delete filters.value[key]
+  const newFilters = { ...filters.value }
+  delete newFilters[key]
+  filters.value = newFilters
   filterModels.value[key] = ''
 }
 
@@ -247,7 +277,7 @@ const handleImageError = (event) => {
   event.target.src = 'https://via.placeholder.com/200?text=No+Image'
 }
 
-// Резервные данные (укороченная версия)
+// Резервные данные
 const getFallbackData = () => {
   return [
     {
@@ -271,8 +301,15 @@ const getFallbackData = () => {
   ]
 }
 
-// Загружаем данные
+// Загружаем данные при монтировании
 onMounted(() => {
   loadData()
+})
+
+// Очищаем таймеры при размонтировании
+import { onUnmounted } from 'vue'
+onUnmounted(() => {
+  applyFiltersDebounced.cancel()
+  handleFilter.cancel()
 })
 </script>
